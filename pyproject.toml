@@ -1,0 +1,94 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "buildra"
+version = "0.0.1"
+description = "An open-source terminal coding agent built with LangGraph."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Saqlain Amjad" }]
+keywords = ["agent", "langgraph", "llm", "coding-assistant", "cli", "deepseek"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+    "Typing :: Typed",
+]
+dependencies = [
+    "langchain-core>=1.6,<2",
+    "langchain-deepseek>=1.1,<2",
+    "langgraph>=1.2,<2",
+    "platformdirs>=4.3",
+    "pydantic>=2.9,<3",
+    "python-dotenv>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/SaqlainAmjad/Buildra-The-Open-Source-Coding-Agent"
+Issues = "https://github.com/SaqlainAmjad/Buildra-The-Open-Source-Coding-Agent/issues"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4",
+    "pre-commit>=4.0",
+    "pytest>=9.0",
+    "ruff>=0.17",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/buildra"]
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+# Code blocks in docs/ are illustrative sketches, not formatted source.
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "SIM",      # simplify
+    "RUF",      # ruff-specific
+    "D",        # docstrings (public API only, see ignores)
+    "ANN",      # type annotations
+    "PTH",      # prefer pathlib
+    "S",        # bandit security checks
+]
+ignore = [
+    "D100", "D104", "D105", "D107",  # module/package/magic/__init__ docstrings
+    "D203", "D213",                  # pick one docstring style (D211 + D212)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "ANN", "S101"]
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+mypy_path = "src"
+packages = ["buildra"]
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "live: calls a real LLM API (needs an API key; skipped by default)",
+]
