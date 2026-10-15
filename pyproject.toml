@@ -36,6 +36,9 @@ dependencies = [
     "typer>=0.15",
 ]
 
+[project.scripts]
+buildra = "buildra.cli.app:app"
+
 [project.urls]
 Homepage = "https://github.com/SaqlainAmjad/Buildra-The-Open-Source-Coding-Agent"
 Issues = "https://github.com/SaqlainAmjad/Buildra-The-Open-Source-Coding-Agent/issues"
@@ -57,7 +60,7 @@ line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
 # Code blocks in docs/ are illustrative sketches, not formatted source.
-extend-exclude = ["docs"]
+extend-exclude = ["docs", "examples"]
 
 [tool.ruff.lint]
 select = [

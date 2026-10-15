@@ -33,32 +33,28 @@ def tools_node(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, A
     emit = get_stream_writer()
     results: list[ToolMessage] = []
 
+    def finish(result: ToolMessage) -> None:
+        # Stream each result as soon as it exists; the node's update only arrives at the end.
+        results.append(result)
+        emit({"event": "tool_end", "message": result})
+
     for call in message.tool_calls:
         call_id = call["id"] or ""
         decision = decisions.get(call_id, _MISSING)
         if decision["action"] != "run":
-            results.append(_refusal(call_id, call["name"], decision))
+            finish(_refusal(call_id, call["name"], decision))
             continue
         try:
             prepared = ctx.tools.prepare(call["name"], call["args"])
         except InvalidToolCall as error:  # only if the registry changed mid-turn
-            results.append(
-                _refusal(call_id, call["name"], {"action": "invalid", "message": str(error)})
-            )
+            finish(_refusal(call_id, call["name"], {"action": "invalid", "message": str(error)}))
             continue
-        emit(
-            {
-                "event": "tool_start",
-                "call_id": call_id,
-                "tool": call["name"],
-                "summary": prepared.summary(),
-            }
-        )
-        results.append(_execute(prepared, call_id, ctx.tool_context()))
+        emit({"event": "tool_start", "tool": call["name"], "summary": prepared.summary()})
+        finish(_execute(prepared, call_id, ctx.tool_context()))
 
     for malformed in message.invalid_tool_calls:
         call_id = malformed["id"] or ""
-        results.append(_refusal(call_id, malformed["name"] or "", decisions.get(call_id, _MISSING)))
+        finish(_refusal(call_id, malformed["name"] or "", decisions.get(call_id, _MISSING)))
 
     return {"messages": results}
 
