@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "buildra"
-version = "0.0.1"
+version = "0.1.0"
 description = "An open-source terminal coding agent built with LangGraph."
 readme = "README.md"
 license = "MIT"
