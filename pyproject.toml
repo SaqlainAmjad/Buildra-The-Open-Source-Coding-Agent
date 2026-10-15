@@ -27,9 +27,13 @@ dependencies = [
     "langchain-core>=1.6,<2",
     "langchain-deepseek>=1.1,<2",
     "langgraph>=1.2,<2",
+    "pathspec>=0.12",
     "platformdirs>=4.3",
+    "prompt-toolkit>=3.0.48",
     "pydantic>=2.9,<3",
     "python-dotenv>=1.0",
+    "rich>=13.9",
+    "typer>=0.15",
 ]
 
 [project.urls]
@@ -83,7 +87,8 @@ convention = "google"
 [tool.mypy]
 python_version = "3.11"
 strict = true
-warn_unreachable = true
+# warn_unreachable is off: platform branches (sys.platform == "win32") are always
+# "unreachable" on one OS or the other, and this project supports both.
 mypy_path = "src"
 packages = ["buildra"]
 
