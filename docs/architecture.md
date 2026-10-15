@@ -29,7 +29,7 @@ LSP, git snapshots/revert, web tools, image input, cross-session memory.
 | 1 | Agent loop | `while(true)` in `session/prompt.ts:1081` | cyclic `StateGraph`: `agent -> authorize -> tools -> agent` | v0.1 |
 | 2 | Loop exit | "finished without tool calls" (`prompt.ts:1111`) | conditional edge on `AIMessage.tool_calls` / `invalid_tool_calls` | v0.1 |
 | 3 | History | message + part tables | `messages` with the `add_messages` reducer | v0.1 |
-| 4 | Streaming | processor + event bus | `graph.stream(stream_mode=["messages","updates","custom"], version="v2")` | v0.1 |
+| 4 | Streaming | processor + event bus | `graph.stream(stream_mode=["messages","custom"], version="v2")`; tools emit `tool_start` / `tool_end` custom events | v0.1 |
 | 5 | Tool definition | `Tool.define` + `.txt` description (`tool/tool.ts`) | `BuildraTool` = Pydantic args model + description + `permission(args)` + `run(args, ctx)`, exported as LangChain `StructuredTool` for `bind_tools` | v0.1 |
 | 6 | Invalid args -> retry | `InvalidArgumentsError` (`tool.ts:24`) | tool node returns a ToolMessage "invalid arguments: ... rewrite the input", and the model retries on the next loop | v0.1 |
 | 7 | Output truncation | `truncate.ts` 2000 lines / 50 KB | `tools/output.py` head and tail truncation, same limits | v0.1 |
@@ -50,7 +50,7 @@ LSP, git snapshots/revert, web tools, image input, cross-session memory.
 | 22 | Subagents | `task` tool -> child session, final text only, depth 1 | `task` tool invokes a compiled subgraph with the `explore` profile and a fresh `messages`; returns the final text | v0.3 |
 | 23 | MCP | MCP SDK, `server_tool` names | `langchain-mcp-adapters`, sanitised `server_tool` names, permission key `mcp` | v0.3 |
 | 24 | Slash commands | TUI commands + prompt templates | `cli/slash.py`: `/help /clear /model /sessions /plan /build /compact` | v0.3 |
-| 25 | Step limit | `agent.steps` + MAX_STEPS note | `max_steps` config + `RemainingSteps` + final-step nudge | v0.1 |
+| 25 | Step limit | `agent.steps` + MAX_STEPS note | `max_steps` = model replies since the last user message (derived from history); at the limit, `tool_choice="none"` + final-step note; `recursion_limit` as backstop | v0.1 |
 
 ---
 
@@ -88,9 +88,9 @@ Nodes (each one file under `agent/nodes/`):
 | Node | Reads | Writes | Notes |
 |---|---|---|---|
 | `compact` | messages, summary | summary, `RemoveMessage`s | v0.2. Keeps a recent tail and never splits a tool-call pair. |
-| `agent` | messages, mode, summary, todos | messages (+1 AIMessage) | Builds the system prompt and binds visible tools. Adds the "final step" note when `remaining_steps` is low. |
+| `agent` | messages, mode, summary, todos | messages (+1 AIMessage) | Builds the system prompt and binds visible tools. At the step limit, forbids tool calls and adds the "final step" note. |
 | `authorize` | last AIMessage, session_rules, mode | decisions, session_rules | Pure evaluation, plus at most **one** `interrupt()` carrying *all* pending asks as a batch. One interrupt keeps resume deterministic. |
-| `tools` | last AIMessage, decisions | messages (ToolMessages), todos | Every `tool_call` id **and** every `invalid_tool_call` id gets exactly one ToolMessage. Independent calls run concurrently. |
+| `tools` | last AIMessage, decisions | messages (ToolMessages), todos | Every `tool_call` id **and** every `invalid_tool_call` id gets exactly one ToolMessage. Calls run in order (concurrent read-only calls: roadmap). |
 
 Routers (pure functions in `agent/routing.py`, unit-tested without an
 LLM): `route_context`, `route_after_agent`, `route_after_tools`.
@@ -117,9 +117,9 @@ preserves opencode's "the tool knows the right pattern" insight.
    opencode's "rewrite the input" style.
 3. **Unknown tool name**: "Unknown tool X. Available tools: ...".
 4. The model sees the error on the next `agent` turn and retries. That is
-   the retry loop, with no special machinery. A per-turn cap
-   (`max_invalid_calls`, default 3 consecutive) stops endless garbage by
-   ending the turn with a visible error.
+   the retry loop, with no special machinery. The per-turn step budget
+   (`max_steps`) bounds it, so endless garbage still ends with a summary.
+   (A separate `max_invalid_calls` cap was planned but is unnecessary.)
 5. **API-level failures** (HTTP 429/5xx/timeout) are retried inside the
    `llm/` adapter with exponential backoff (3 attempts), separate from the
    above.
@@ -134,8 +134,11 @@ class AgentState(TypedDict):
     summary: str | None                            # v0.2 compaction
     session_rules: list[Rule]                      # v0.2 "always" approvals
     decisions: dict[str, Decision]                 # authorize -> tools handoff
-    remaining_steps: RemainingSteps                # managed by LangGraph
 ```
+
+The step count is *derived* from `messages` (model replies since the last
+user message) instead of stored. A derived value can't drift out of sync,
+and it survives interrupts and resumes unchanged.
 
 Runtime context (not persisted): `workdir`, `settings`, `llm`,
 `tool_registry`, `instructions_loader`. Tests pass a fake LLM here.
@@ -239,13 +242,18 @@ There are no `utils.py` or `helpers.py` files.
 - **Day 1 (after approval):** repo skeleton, tooling (ruff, mypy --strict,
   pytest, pre-commit, CI), config loader, `llm/` adapter + DeepSeek spike
   (model list, tool calling, streaming, thinking mode), `git init`.
-- **v0.1 (Day 2):** graph (`agent` -> `tools`, no `authorize` yet; v0.1 has
-  a static allow/deny check only, with no interactive asks), 7 tools,
-  truncation, sandbox (deny outside workdir), streaming REPL, system prompt,
-  step limit, invalid-call handling. Tag `v0.1.0`.
-- **v0.2 (Days 3-4):** rules engine, `authorize` + interrupts + approval UI,
-  doom loop, SQLite sessions + `--resume` + session list, pruning and
-  compaction, todo tool, plan/build mode. Tag `v0.2.0`.
+- **v0.1 (Day 2, done):** full graph shape including `authorize` with
+  interrupts and a fixed policy (read-only tools run, everything else asks
+  y / n / feedback). *Changed from the plan:* a `bash` tool without any
+  confirmation was too dangerous to ship, even for a day. Also: 8 tools (bash
+  + powershell), truncation, sandbox (deny outside workdir), streaming REPL
+  and one-shot mode, system prompt, step budget, invalid-call handling,
+  Ctrl+C history repair. In-memory checkpointer (sessions end with the
+  process). Tag `v0.1.0`.
+- **v0.2 (Days 3-4):** rules engine (allow/ask/deny patterns, "always",
+  config) replacing the fixed policy, `external_directory` asks, doom loop,
+  SQLite sessions + `--resume` + session list, pruning and compaction, todo
+  tool, plan/build mode. Tag `v0.2.0`.
 - **v0.3 (Days 4-5):** AGENTS.md, `task` subagent, MCP, slash commands,
   optional LangSmith (env vars only), docs polish, release. Tag `v0.3.0`.
   Definition of done: fix a real bug in a small repo through the CLI.
