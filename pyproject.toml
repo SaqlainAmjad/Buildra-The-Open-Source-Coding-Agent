@@ -95,6 +95,7 @@ packages = ["buildra"]
 # ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]  # lets tests import shared helpers such as `fakes`
 addopts = "-ra --strict-markers --import-mode=importlib -m 'not live'"
 markers = [
     "live: calls a real LLM API (needs an API key; skipped by default)",
